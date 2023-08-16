@@ -11,6 +11,7 @@ import torch.nn.functional as F
 from typing import Optional, Tuple, Type
 
 from .common import LayerNorm2d, MLPBlock
+from .utils_py import nlc_to_grid, grid_to_nlc, shuffle_and_recovery
 
 
 # This class and its supporting functions below lightly adapted from the ViTDet backbone available at: https://github.com/facebookresearch/detectron2/blob/main/detectron2/modeling/backbone/vit.py # noqa
@@ -166,18 +167,41 @@ class Block(nn.Module):
 
         self.window_size = window_size
 
+        self.grid_stride = 1
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         shortcut = x
         x = self.norm1(x)
         # Window partition
+        N, H, W, C = x.shape
         if self.window_size > 0:
-            H, W = x.shape[1], x.shape[2]
             x, pad_hw = window_partition(x, self.window_size)
+        elif self.grid_stride > 1:
+            print("running gridattn, stdie is {}".format(self.grid_stride))
+            if self.training:
+                w_shuffle, w_recovery = shuffle_and_recovery(self.grid_stride)
+                h_shuffle, h_recovery = shuffle_and_recovery(self.grid_stride)
+            else:
+                w_shuffle, w_recovery = None, None
+                h_shuffle, h_recovery = None, None
+            hw_shape = (x.shape[1], x.shape[2])
+            x_reshape = x.reshape(N, -1, C)
+            x_grid, hw_shape_grid = nlc_to_grid(x_reshape, hw_shape, grid_stride=self.grid_stride, w_index=w_shuffle,
+                                                h_index=h_shuffle)
+
+            x = x_grid.reshape(N*self.grid_stride*self.grid_stride, H//self.grid_stride, W//self.grid_stride, C)
+
 
         x = self.attn(x)
         # Reverse window partition
         if self.window_size > 0:
             x = window_unpartition(x, self.window_size, pad_hw, (H, W))
+        elif self.grid_stride > 1:
+            x_reshape = x.reshape(N*self.grid_stride*self.grid_stride, -1, C)
+            x_grid, _ = grid_to_nlc(x_reshape, hw_shape_grid, grid_stride=self.grid_stride, w_index=w_recovery,
+                                 h_index=h_recovery)
+            x = x_grid.reshape(N, H, W, C)
+
 
         x = shortcut + x
         x = x + self.mlp(self.norm2(x))
