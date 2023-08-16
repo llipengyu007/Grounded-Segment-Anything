@@ -23,7 +23,8 @@ from segment_anything import (
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
-
+import time
+from tqdm import tqdm
 
 def load_image(image_path):
     # load image
@@ -159,6 +160,7 @@ if __name__ == "__main__":
 
     parser.add_argument("--device", type=str, default="cpu", help="running on cpu only!, default=False")
     parser.add_argument("--grid_stride", type=int, default=1, help="using str type, 1 means no use, positive value only use in global attn, negative vaule means use all attn" )
+    parser.add_argument("--repeat_times", type=int, default=1, help="repeat times for time costs")
     args = parser.parse_args()
 
     # cfg
@@ -174,6 +176,7 @@ if __name__ == "__main__":
     box_threshold = args.box_threshold
     text_threshold = args.text_threshold
     device = args.device
+    repeat_times = args.repeat_times
 
     # make dir
     os.makedirs(output_dir, exist_ok=True)
@@ -198,41 +201,75 @@ if __name__ == "__main__":
         print("using original SAM")
 
         predictor = SamPredictor(build_sam(checkpoint=sam_checkpoint, grid_stride=grid_stride).to(device))
-    image = cv2.imread(image_path)
-    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-    predictor.set_image(image)
 
-    size = image_pil.size
-    H, W = size[1], size[0]
-    for i in range(boxes_filt.size(0)):
-        boxes_filt[i] = boxes_filt[i] * torch.Tensor([W, H, W, H])
-        boxes_filt[i][:2] -= boxes_filt[i][2:] / 2
-        boxes_filt[i][2:] += boxes_filt[i][:2]
 
-    boxes_filt = boxes_filt.cpu()
-    transformed_boxes = predictor.transform.apply_boxes_torch(boxes_filt, image.shape[:2]).to(device)
+    cost_overall = time.time()
+    cost_set_image = 0
+    cost_transformed_boxes = 0
+    cost_predict_torch = 0
+    cost_save = 0
+    for tt in tqdm(range(repeat_times)):
+        image = cv2.imread(image_path)
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
-    masks, _, _ = predictor.predict_torch(
-        point_coords = None,
-        point_labels = None,
-        boxes = transformed_boxes.to(device),
-        multimask_output = False,
-    )
-    
-    # draw output image
-    plt.figure(figsize=(10, 10))
-    plt.imshow(image)
-    for mask in masks:
-        show_mask(mask.cpu().numpy(), plt.gca(), random_color=True)
-    for box, label in zip(boxes_filt, pred_phrases):
-        show_box(box.numpy(), plt.gca(), label)
+        predictor.reset_image()
+        start = time.time()
+        predictor.set_image(image)
+        cost_set_image += time.time() - start
 
-    plt.axis('off')
-    plt.savefig(
-        os.path.join(output_dir, "grounded_sam_output.jpg"), 
-        bbox_inches="tight", dpi=300, pad_inches=0.0
-    )
+        size = image_pil.size
+        H, W = size[1], size[0]
+        for i in range(boxes_filt.size(0)):
+            boxes_filt[i] = boxes_filt[i] * torch.Tensor([W, H, W, H])
+            boxes_filt[i][:2] -= boxes_filt[i][2:] / 2
+            boxes_filt[i][2:] += boxes_filt[i][:2]
 
-    save_mask_data(output_dir, masks, boxes_filt, pred_phrases)
-    print("complete")
+        boxes_filt = boxes_filt.cpu()
+        start = time.time()
+        transformed_boxes = predictor.transform.apply_boxes_torch(boxes_filt, image.shape[:2]).to(device)
+        cost_transformed_boxes += time.time()-start
+
+        start = time.time()
+        masks, _, _ = predictor.predict_torch(
+            point_coords = None,
+            point_labels = None,
+            boxes = transformed_boxes.to(device),
+            multimask_output = False,
+        )
+        cost_predict_torch += time.time()-start
+
+
+        print(cost_set_image/(tt+1), cost_transformed_boxes/(tt+1), cost_predict_torch/(tt+1))
+        if tt < 1:
+            # draw output image
+            start = time.time()
+            plt.figure(figsize=(10, 10))
+            plt.imshow(image)
+            for mask in masks:
+                show_mask(mask.cpu().numpy(), plt.gca(), random_color=True)
+            for box, label in zip(boxes_filt, pred_phrases):
+                show_box(box.numpy(), plt.gca(), label)
+
+            plt.axis('off')
+            plt.savefig(
+                os.path.join(output_dir, "grounded_sam_output.jpg"),
+                bbox_inches="tight", dpi=300, pad_inches=0.0
+            )
+
+            save_mask_data(output_dir, masks, boxes_filt, pred_phrases)
+            plt.cla()
+            plt.clf()
+            plt.close('all')
+            cost_save += time.time()-start
+
+
+    print("cost_overall={:.4f}".format((time.time()-cost_overall)/repeat_times))
+    print("cost_set_image={:.4f}".format(cost_set_image/repeat_times))
+    print("cost_transformed_boxes={:.4f}".format(cost_transformed_boxes/repeat_times))
+    print("cost_predict_torch={:.4f}".format(cost_predict_torch/repeat_times))
+    print("cost_all_wosave={:.4f}".format((cost_set_image+cost_transformed_boxes+cost_predict_torch)/repeat_times))
+    print("cost_save={:.4f}".format(cost_save))
+
+
+    print("complete", repeat_times, grid_stride)
 

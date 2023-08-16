@@ -181,7 +181,7 @@ class Block(nn.Module):
         if self.window_size > 0:
             x, pad_hw = window_partition(x, self.window_size)
         if self.grid_stride > 1 and (self.window_size <= 0 or self.grid_on_swin):
-            print("running gridattn, stdie is {}".format(self.grid_stride))
+            # print("running gridattn, stdie is {}".format(self.grid_stride))
             if self.training:
                 w_shuffle, w_recovery = shuffle_and_recovery(self.grid_stride)
                 h_shuffle, h_recovery = shuffle_and_recovery(self.grid_stride)
