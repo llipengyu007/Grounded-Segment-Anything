@@ -229,4 +229,5 @@ if __name__ == "__main__":
     )
 
     save_mask_data(output_dir, masks, boxes_filt, pred_phrases)
+    print("complete")
 
