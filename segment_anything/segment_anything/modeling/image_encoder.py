@@ -173,7 +173,9 @@ class Block(nn.Module):
         self.grid_on_swin = grid_stride < 0
         self.grid_stride = abs(grid_stride)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        self.forward = self.forward_swin_grid
+
+    def forward_swin_grid(self, x: torch.Tensor) -> torch.Tensor:
         shortcut = x
         x = self.norm1(x)
         # Window partition
@@ -214,6 +216,49 @@ class Block(nn.Module):
 
         return x
 
+    def forward_grid_swin(self, x: torch.Tensor) -> torch.Tensor:
+        shortcut = x
+        x = self.norm1(x)
+        # Window partition
+
+        if self.grid_stride > 1 and (self.window_size <= 0 or self.grid_on_swin):
+            # print("running gridattn, stdie is {}".format(self.grid_stride))
+            if self.training:
+                w_shuffle, w_recovery = shuffle_and_recovery(self.grid_stride)
+                h_shuffle, h_recovery = shuffle_and_recovery(self.grid_stride)
+            else:
+                w_shuffle, w_recovery = None, None
+                h_shuffle, h_recovery = None, None
+            n, h, w, c = x.shape
+            hw_shape = (h, w)
+            x_reshape = x.reshape(n, -1, c)
+            x_grid, hw_shape_grid = nlc_to_grid(x_reshape, hw_shape, grid_stride=self.grid_stride, w_index=w_shuffle,
+                                                h_index=h_shuffle)
+
+            x = x_grid.reshape(n*self.grid_stride*self.grid_stride, h//self.grid_stride, w//self.grid_stride, c)
+
+        N, H, W, C = x.shape
+        if self.window_size > 0:
+            x, pad_hw = window_partition(x, self.window_size)
+
+        x = self.attn(x)
+
+        # Reverse window partition
+        if self.window_size > 0:
+            x = window_unpartition(x, self.window_size, pad_hw, (H, W))
+        if self.grid_stride > 1 and (self.window_size <= 0 or self.grid_on_swin):
+            x_reshape = x.reshape(n*self.grid_stride*self.grid_stride, -1, c)
+            x_grid, _ = grid_to_nlc(x_reshape, hw_shape_grid, grid_stride=self.grid_stride, w_index=w_recovery,
+                                 h_index=h_recovery)
+            x = x_grid.reshape(n, h, w, c)
+
+
+
+
+        x = shortcut + x
+        x = x + self.mlp(self.norm2(x))
+
+        return x
 
 class Attention(nn.Module):
     """Multi-head Attention block with relative position embeddings."""
