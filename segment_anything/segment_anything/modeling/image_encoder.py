@@ -34,6 +34,7 @@ class ImageEncoderViT(nn.Module):
         rel_pos_zero_init: bool = True,
         window_size: int = 0,
         global_attn_indexes: Tuple[int, ...] = (),
+        grid_stride: int = 1,
     ) -> None:
         """
         Args:
@@ -83,6 +84,7 @@ class ImageEncoderViT(nn.Module):
                 rel_pos_zero_init=rel_pos_zero_init,
                 window_size=window_size if i not in global_attn_indexes else 0,
                 input_size=(img_size // patch_size, img_size // patch_size),
+                grid_stride=grid_stride,
             )
             self.blocks.append(block)
 
@@ -135,6 +137,7 @@ class Block(nn.Module):
         rel_pos_zero_init: bool = True,
         window_size: int = 0,
         input_size: Optional[Tuple[int, int]] = None,
+        grid_stride: int = 1,
     ) -> None:
         """
         Args:
@@ -167,7 +170,8 @@ class Block(nn.Module):
 
         self.window_size = window_size
 
-        self.grid_stride = 1
+        self.grid_on_swin = grid_stride < 0
+        self.grid_stride = abs(grid_stride)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         shortcut = x
@@ -176,7 +180,7 @@ class Block(nn.Module):
         N, H, W, C = x.shape
         if self.window_size > 0:
             x, pad_hw = window_partition(x, self.window_size)
-        elif self.grid_stride > 1:
+        if self.grid_stride > 1 and (self.window_size <= 0 or self.grid_on_swin):
             print("running gridattn, stdie is {}".format(self.grid_stride))
             if self.training:
                 w_shuffle, w_recovery = shuffle_and_recovery(self.grid_stride)
@@ -184,23 +188,25 @@ class Block(nn.Module):
             else:
                 w_shuffle, w_recovery = None, None
                 h_shuffle, h_recovery = None, None
-            hw_shape = (x.shape[1], x.shape[2])
-            x_reshape = x.reshape(N, -1, C)
+            n, h, w, c = x.shape
+            hw_shape = (h, w)
+            x_reshape = x.reshape(n, -1, c)
             x_grid, hw_shape_grid = nlc_to_grid(x_reshape, hw_shape, grid_stride=self.grid_stride, w_index=w_shuffle,
                                                 h_index=h_shuffle)
 
-            x = x_grid.reshape(N*self.grid_stride*self.grid_stride, H//self.grid_stride, W//self.grid_stride, C)
+            x = x_grid.reshape(n*self.grid_stride*self.grid_stride, h//self.grid_stride, w//self.grid_stride, c)
 
 
         x = self.attn(x)
         # Reverse window partition
-        if self.window_size > 0:
-            x = window_unpartition(x, self.window_size, pad_hw, (H, W))
-        elif self.grid_stride > 1:
-            x_reshape = x.reshape(N*self.grid_stride*self.grid_stride, -1, C)
+        if self.grid_stride > 1 and (self.window_size <= 0 or self.grid_on_swin):
+            x_reshape = x.reshape(n*self.grid_stride*self.grid_stride, -1, c)
             x_grid, _ = grid_to_nlc(x_reshape, hw_shape_grid, grid_stride=self.grid_stride, w_index=w_recovery,
                                  h_index=h_recovery)
-            x = x_grid.reshape(N, H, W, C)
+            x = x_grid.reshape(n, h, w, c)
+        if self.window_size > 0:
+            x = window_unpartition(x, self.window_size, pad_hw, (H, W))
+
 
 
         x = shortcut + x

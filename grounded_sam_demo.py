@@ -158,12 +158,14 @@ if __name__ == "__main__":
     parser.add_argument("--text_threshold", type=float, default=0.25, help="text threshold")
 
     parser.add_argument("--device", type=str, default="cpu", help="running on cpu only!, default=False")
+    parser.add_argument("--grid_stride", type=int, default=1, help="using str type, 1 means no use, positive value only use in global attn, negative vaule means use all attn" )
     args = parser.parse_args()
 
     # cfg
     config_file = args.config  # change the path of the model config file
     grounded_checkpoint = args.grounded_checkpoint  # change the path of the model
     sam_checkpoint = args.sam_checkpoint
+    grid_stride = args.grid_stride
     sam_hq_checkpoint = args.sam_hq_checkpoint
     use_sam_hq = args.use_sam_hq
     image_path = args.input_image
@@ -190,9 +192,12 @@ if __name__ == "__main__":
 
     # initialize SAM
     if use_sam_hq:
+        print("using HQ SAM")
         predictor = SamPredictor(build_sam_hq(checkpoint=sam_hq_checkpoint).to(device))
     else:
-        predictor = SamPredictor(build_sam(checkpoint=sam_checkpoint).to(device))
+        print("using original SAM")
+
+        predictor = SamPredictor(build_sam(checkpoint=sam_checkpoint, grid_stride=grid_stride).to(device))
     image = cv2.imread(image_path)
     image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
     predictor.set_image(image)
