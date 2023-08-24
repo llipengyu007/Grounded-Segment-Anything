@@ -44,7 +44,7 @@ def build_sam_vit_b(checkpoint=None, grid_stride=1):
         grid_stride=grid_stride,
     )
 
-build_sam = build_sam_vit_b
+build_sam = build_sam_vit_h
 
 
 sam_model_registry = {
