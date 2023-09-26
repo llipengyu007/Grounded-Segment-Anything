@@ -6,7 +6,7 @@ python grounded_sam_demo.py \
   --sam_checkpoint /home/Rhossolas.Lee/.cache/groundSAM/segment_anything/sam_vit_h.pth \
   --output_dir outputs/gridattn_strid_tmp \
   --box_threshold 0.3 --text_threshold 0.25 \
-  --input_image /home/Rhossolas.Lee/code/IDEA/Grounded-Segment-Anything/assets/demo9.jpg \
+  --input_image /home/Rhossolas.Lee/code/IDEA/Grounded-Segment-Anything/assets/demo2.jpg \
   --grid_stride 1 \
-  --repeat_times 100 \
+  --repeat_times 1 \
   --text_prompt "dog" \
