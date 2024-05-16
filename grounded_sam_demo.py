@@ -16,10 +16,20 @@ from groundingdino.util.utils import clean_state_dict, get_phrases_from_posmap
 
 # segment anything
 from segment_anything import (
-    build_sam,
-    build_sam_hq,
+    # build_sam,
+    build_sam_vit_b,
+    build_sam_vit_l,
+    build_sam_vit_h,
+    # build_sam_hq,
     SamPredictor
 )
+
+
+
+import segment_anything
+print("SAM PATH:{}".format(segment_anything.__path__))
+
+
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
@@ -161,6 +171,8 @@ if __name__ == "__main__":
     parser.add_argument("--device", type=str, default="cpu", help="running on cpu only!, default=False")
     parser.add_argument("--grid_stride", type=int, default=1, help="using str type, 1 means no use, positive value only use in global attn, negative vaule means use all attn" )
     parser.add_argument("--repeat_times", type=int, default=1, help="repeat times for time costs")
+
+    parser.add_argument("--hourglass_num_cluster", type=int, default=144)
     args = parser.parse_args()
 
     # cfg
@@ -194,13 +206,22 @@ if __name__ == "__main__":
     )
 
     # initialize SAM
+    if sam_hq_checkpoint[-6:] == '_h.pth':
+        build_sam = build_sam_vit_h
+    elif sam_hq_checkpoint[-6:] == '_l.pth':
+        build_sam = build_sam_vit_l
+    elif sam_hq_checkpoint[-6:] == '_b.pth':
+        build_sam = build_sam_vit_b
+    else:
+        assert False, sam_hq_checkpoint[-6:]
     if use_sam_hq:
         print("using HQ SAM")
         predictor = SamPredictor(build_sam_hq(checkpoint=sam_hq_checkpoint).to(device))
     else:
         print("using original SAM")
 
-        predictor = SamPredictor(build_sam(checkpoint=sam_checkpoint, grid_stride=grid_stride).to(device))
+        hourglass_num_cluster = args.hourglass_num_cluster
+        predictor = SamPredictor(build_sam(checkpoint=sam_checkpoint, grid_stride=grid_stride, hourglass_num_cluster=hourglass_num_cluster).to(device))
 
 
     cost_overall = time.time()

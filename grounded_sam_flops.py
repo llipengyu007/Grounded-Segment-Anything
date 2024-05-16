@@ -18,10 +18,20 @@ from ptflops import get_model_complexity_info
 
 # segment anything
 from segment_anything import (
-    build_sam,
-    build_sam_hq,
-    SamPredictor
+    # build_sam,
+    # build_sam_hq,
+    SamPredictor,
+    build_sam_vit_b,
+    build_sam_vit_l,
+    build_sam_vit_h,
 )
+
+
+import segment_anything
+print("SAM PATH:{}".format(segment_anything.__path__))
+
+build_sam = build_sam_vit_h
+
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
@@ -55,7 +65,7 @@ if __name__ == "__main__":
     parser.add_argument("--device", type=str, default="cpu", help="running on cpu only!, default=False")
     parser.add_argument("--grid_stride", type=int, default=1,
                         help="using str type, 1 means no use, positive value only use in global attn, negative vaule means use all attn")
-
+    parser.add_argument("--hourglass_num_cluster", type=int, default=144)
     args = parser.parse_args()
 
     # cfg
@@ -66,9 +76,10 @@ if __name__ == "__main__":
     use_sam_hq = args.use_sam_hq
 
     image_size = (3, 1024, 1024)
+    # image_size = (3, 512, 512)
 
     device = args.device
-
+    hourglass_num_cluster = args.hourglass_num_cluster
 
     # initialize SAM
     if use_sam_hq:
@@ -76,13 +87,20 @@ if __name__ == "__main__":
         predictor = SamPredictor(build_sam_hq(checkpoint=sam_hq_checkpoint).to(device))
     else:
         print("using original SAM")
-
-        predictor = SamPredictor(build_sam(checkpoint=sam_checkpoint, grid_stride=grid_stride).to(device))
+        if sam_checkpoint.find("vit_h") >= 0:
+            predictor = SamPredictor(build_sam_vit_h(grid_stride=grid_stride,
+                                                         hourglass_num_cluster=hourglass_num_cluster).to(device))
+        elif sam_checkpoint.find("vit_l") >= 0:
+            predictor = SamPredictor(build_sam_vit_l(grid_stride=grid_stride,
+                                                         hourglass_num_cluster=hourglass_num_cluster).to(device))
+        elif sam_checkpoint.find("vit_b") >= 0:
+            predictor = SamPredictor(build_sam_vit_b(grid_stride=grid_stride,
+                                                         hourglass_num_cluster=hourglass_num_cluster).to(device))
+        else:
+            assert False, "sam_checkpoint error {}".format(sam_checkpoint)
 
         macs, params = get_model_complexity_info(predictor.model.image_encoder, image_size, as_strings=True,
                                            print_per_layer_stat=True, verbose=True)
-
-
 
     print("grid_stride:", grid_stride)
     print("macs", macs)
